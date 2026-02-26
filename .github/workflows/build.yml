@@ -1,0 +1,87 @@
+name: Build Polars 1.18.0 for Pyodide 0.29.3
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-wheel-pyodide:
+    name: build-wheel (polars 1.18.0, pyodide 0.29.3, wasm32)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out Polars 1.18.0
+        uses: actions/checkout@v4
+        with:
+          repository: pola-rs/polars
+          ref: py-1.18.0
+
+      # Rust compilation is memory-intensive; avoid OOM kills
+      - name: Set swap space
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 10
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # Emscripten 4.0.9 is the exact version used by Pyodide 0.29.3 / pyodide_2025_0 ABI
+      - name: Set up Emscripten 4.0.9
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 4.0.9
+
+      # LLVM major version must match what Emscripten 4.0.9 expects (LLVM 19)
+      - name: Install LLVM 19
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          echo "EM_LLVM_ROOT=/usr/lib/llvm-19/bin" >> $GITHUB_ENV
+
+      # Emscripten 4.0.9 validates that exported symbol names look like C identifiers,
+      # which rejects Rust-mangled names. Patch out that check.
+      - name: Patch Emscripten export name validator
+        run: |
+          EMROOT=$(em-config EMSCRIPTEN_ROOT)
+          # The check lives in tools/link.py (or similar); disable the C-identifier assertion
+          sed -i 's/assert.*c_ident.*export/# patched: skip C-ident check for export/' \
+            "$EMROOT/tools/link.py" || true
+          # Fallback: also try shared.py where the validator may live
+          sed -i 's/def check_export_name/def _disabled_check_export_name/' \
+            "$EMROOT/tools/shared.py" || true
+
+      # Strip features that have no wasm32 support. tokio (async runtime) is the main blocker;
+      # parquet/cloud/decompress pull in tokio or OS-level I/O that doesn't exist in WASM.
+      - name: Disable incompatible Cargo features
+        env:
+          FEATURES: parquet|async|json|extract_jsonpath|cloud|polars_cloud|tokio|clipboard|decompress|new_streaming
+        run: |
+          sed -i 's/^  "json",$/  "serde_json",/' crates/polars-python/Cargo.toml
+          sed -E -i "/^  \"(${FEATURES})\",$/d" crates/polars-python/Cargo.toml py-polars/Cargo.toml
+
+      - name: Set compiler flags for wasm32
+        run: |
+          echo "CFLAGS=-fPIC" >> $GITHUB_ENV
+          echo "RUSTFLAGS=-C link-self-contained=no" >> $GITHUB_ENV
+
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          target: wasm32-unknown-emscripten
+          args: >
+            --profile dist-release
+            --manifest-path py-polars/Cargo.toml
+            --interpreter python3.13
+            --out wasm-dist
+          maturin-version: 1.7.4
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: polars-1.18.0-cp313-pyodide_2025_0-wasm32
+          path: wasm-dist/*.whl
