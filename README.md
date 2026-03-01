@@ -31,7 +31,7 @@ Now open http://localhost:8000/test-smoke.html.
 
 ### Official test suite
 
-Test files from `py-polars/tests/unit/` (streaming, cloud, IO, and ML directories excluded). Results are informational — a few known failures are expected (see table below). The `tests/unit/` directory has been copied from `py-polars/tests/unit/`.
+Test files from `py-polars/tests/unit/` (streaming, cloud, IO, and ML directories excluded). Results are informational — a few known failures are expected (see table below).
 
 ```bash
 uv run -m http.server
@@ -40,9 +40,9 @@ Now open http://localhost:8000/test-official.html.
 
 `wasm-dist/` must contain the built wheel.
 
-`test-official.html`: **~23066 pass, ~281 fail, 9 skipped** (2 tests deselected as they intentionally exhaust the call stack):
+`test-official.html`: **23066 pass, 281 fail, 9 skipped** (2 tests deselected as they intentionally exhaust the call stack):
 
-Failures group into known categories:
+Failures group into the following categories:
 
 | Category | Root cause |
 |----------|-----------|
