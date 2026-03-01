@@ -12,7 +12,7 @@ From **1.34.0** onwards, `polars-stream` became a standalone crate with uncondit
 
 ### Smoke tests
 
-Four basic correctness tests (DataFrame creation, operations, dtypes, CSV). Must pass for the build to succeed.
+Four basic correctness tests (DataFrame creation, operations, dtypes, CSV). Must pass for the build to succeed. Taken over from [pyodide-recipes](https://github.com/pyodide/pyodide-recipes/blob/main/packages/polars/test_polars.py).
 
 **Interactive** — serve the repo root and open in a browser:
 ```bash
