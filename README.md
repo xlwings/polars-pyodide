@@ -14,24 +14,15 @@ From **1.34.0** onwards, `polars-stream` became a standalone crate with uncondit
 
 Four basic correctness tests (DataFrame creation, operations, dtypes, CSV). Must pass for the build to succeed. Taken over from [pyodide-recipes](https://github.com/pyodide/pyodide-recipes/blob/main/packages/polars/test_polars.py).
 
-**Interactive** — serve the repo root and open in a browser:
 ```bash
 uv run -m http.server
 # open http://localhost:8000/test-smoke.html
 ```
 
-**Headless** (CI / command line):
-```bash
-npm install playwright
-npx playwright install chromium --with-deps
-node test-runner.mjs --strict test-smoke.html wasm-dist
-```
-
 ### Official test suite
 
-303 test files from `py-polars/tests/unit/` (streaming, cloud, IO, and ML directories excluded). Results are informational — a few known failures are expected (see table above). The `tests/unit/` directory must be present (copy `py-polars/tests/unit/` from the Polars 1.33.1 source).
+Test files from `py-polars/tests/unit/` (streaming, cloud, IO, and ML directories excluded). Results are informational — a few known failures are expected (see table below). The `tests/unit/` directory has been copied from `py-polars/tests/unit/`.
 
-**Interactive:**
 ```bash
 uv run -m http.server
 # open http://localhost:8000/test-official.html
@@ -68,11 +59,9 @@ The build runs automatically on every push via `.github/workflows/build.yml` (~2
 
 **On any branch (except `main`)** — the wheel is uploaded as a GitHub Actions artifact (retained 90 days). Download it from the workflow run's summary page.
 
-**On `main`** — a GitHub release named `polars-1.33.1-pyodide-0.29.3` is created (or updated) with the wheel attached directly.
+**On `main`** — a GitHub release named `polars-x.x.x-pyodide-y.y.y` is created (or updated) with the wheel attached directly.
 
 Both paths run the smoke tests (required to pass) and the full official test suite (informational) before uploading.
-
-The GH Actions runner has 16 GB RAM; 6 GB swap is added to cover the ~18 GB peak during the Rust wasm32 link step.
 
 ## Fixes
 
