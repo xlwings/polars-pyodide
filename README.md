@@ -2,29 +2,6 @@
 
 Builds [Polars](https://github.com/pola-rs/polars) 1.33.1 as a [Pyodide](https://pyodide.org) compatible wheel.
 
-**Official test suite** (`test-official.html`) — **~23066 pass, ~281 fail, 9 skipped** (2 tests deselected as they intentionally exhaust the call stack; hypothesis-based tests are non-deterministic so counts vary slightly between runs):
-
-Failures group into known categories:
-
-| Category | Root cause |
-|----------|-----------|
-| `serialize_json` / `str_json_decode` / `str_json_path_match` / `struct_json_encode` missing | `json` + `extract_jsonpath` features stripped |
-| `new_from_parquet` / `sink_parquet` missing | `parquet` feature stripped |
-| `activate 'new_streaming'` / `invalid build. Missing feature new-streaming` panic | `new_streaming` feature stripped |
-| `collect_concurrently` / `to_dot_streaming_phys` missing | `new_streaming` feature stripped |
-| SQL tests using `scan_ipc` (`test_group_by`, `test_joins`, `test_regex`, …) | `scan_ipc(...).collect()` routes through `new_streaming` internally |
-| `test_merge_sorted_unbalanced` / `test_merge_sorted_chain_streaming_*` | `merge_sorted` with `engine="streaming"` requires `new_streaming` |
-| `test_join_where` / `test_boolean_min_max_agg` / `test_cat_order_flag_csv_read_23823` | Non-deterministic ordering on wasm32 |
-| `test_reproducible_hash_with_seeds` / `test_hash_struct` / `test_list_sample` / `test_sample_n_expr` / `test_shuffle_series` / `test_rank_random_series` | Hash/RNG values differ — wasm32 is 32-bit, host is 64-bit |
-| `Could not convert 86400000000 to usize` | 32-bit `usize` overflow on large temporal values (date/time ranges, group_by_dynamic, join_asof) |
-| `capacity overflow` panic / `test_sort_row_fmt` | 32-bit `usize` overflow in Arrow record batch serialization or row encoding |
-| `OSError: emscripten does not support processes` | No subprocess support in Pyodide |
-| `cloudpickle` missing | Not available in Pyodide; affects UDF pickling in `test_serde` |
-| Rolling window wrong values (`test_rolling_negative_offset`, `test_rolling_extrema`, …) | wasm32 behavioral difference in rolling aggregation implementation |
-| `test_object_estimated_size` | Object size estimate assumes 8-byte pointers; wasm32 uses 4-byte pointers |
-| `test_no_panic_pandas_nat` / `test_parse_apply_raw_functions` | Behaviour differs on wasm32: `pd.NaT` accepted without raising; `json_decode` warning not emitted (feature stripped) |
-| `test_from_pandas_nan_to_null_16453` | Monkeypatches multithreading threshold; wasm32 has no threads, path behaves differently |
-
 ## Version ceiling
 
 **1.33.1 is the highest Polars version buildable for wasm32.** Polars 1.18.0 was the last version shipped with Pyodide (through 0.27.7) before it was dropped from Pyodide 0.28+ due Pyodide having upgraded its build toolchain from (Python 3.12, Emscripten 3.1.58) to (Python 3.13, Emscripten 4.0.9).
@@ -60,22 +37,42 @@ uv run -m http.server
 # open http://localhost:8000/test-official.html
 ```
 
-**Headless:**
-```bash
-node test-runner.mjs test-official.html wasm-dist
-```
+`wasm-dist/` must contain the built wheel.
 
-`wasm-dist/` must contain the built wheel. The headless runner starts a local HTTP server, launches Chromium via Playwright, and prints results to stdout. `--strict` makes it exit 1 on any failure.
+`test-official.html`: **~23066 pass, ~281 fail, 9 skipped** (2 tests deselected as they intentionally exhaust the call stack):
+
+Failures group into known categories:
+
+| Category | Root cause |
+|----------|-----------|
+| `serialize_json` / `str_json_decode` / `str_json_path_match` / `struct_json_encode` missing | `json` + `extract_jsonpath` features stripped |
+| `new_from_parquet` / `sink_parquet` missing | `parquet` feature stripped |
+| `activate 'new_streaming'` / `invalid build. Missing feature new-streaming` panic | `new_streaming` feature stripped |
+| `collect_concurrently` / `to_dot_streaming_phys` missing | `new_streaming` feature stripped |
+| SQL tests using `scan_ipc` (`test_group_by`, `test_joins`, `test_regex`, …) | `scan_ipc(...).collect()` routes through `new_streaming` internally |
+| `test_merge_sorted_unbalanced` / `test_merge_sorted_chain_streaming_*` | `merge_sorted` with `engine="streaming"` requires `new_streaming` |
+| `test_join_where` / `test_boolean_min_max_agg` / `test_cat_order_flag_csv_read_23823` | Non-deterministic ordering on wasm32 |
+| `test_reproducible_hash_with_seeds` / `test_hash_struct` / `test_list_sample` / `test_sample_n_expr` / `test_shuffle_series` / `test_rank_random_series` | Hash/RNG values differ — wasm32 is 32-bit, host is 64-bit |
+| `Could not convert 86400000000 to usize` | 32-bit `usize` overflow on large temporal values (date/time ranges, group_by_dynamic, join_asof) |
+| `capacity overflow` panic / `test_sort_row_fmt` | 32-bit `usize` overflow in Arrow record batch serialization or row encoding |
+| `OSError: emscripten does not support processes` | No subprocess support in Pyodide |
+| `cloudpickle` missing | Not available in Pyodide; affects UDF pickling in `test_serde` |
+| Rolling window wrong values (`test_rolling_negative_offset`, `test_rolling_extrema`, …) | wasm32 behavioral difference in rolling aggregation implementation |
+| `test_object_estimated_size` | Object size estimate assumes 8-byte pointers; wasm32 uses 4-byte pointers |
+| `test_no_panic_pandas_nat` / `test_parse_apply_raw_functions` | Behaviour differs on wasm32: `pd.NaT` accepted without raising; `json_decode` warning not emitted (feature stripped) |
+| `test_from_pandas_nan_to_null_16453` | Monkeypatches multithreading threshold; wasm32 has no threads, path behaves differently |
 
 ## Build
 
-**GitHub Actions** (~20 minutes):
+The build runs automatically on every push via `.github/workflows/build.yml` (~20 minutes on `ubuntu-latest`). README-only changes are excluded.
 
-1. Push `.github/workflows/build-1.33.1.yml` to your repo
-2. Go to Actions → "Build Polars 1.33.1 for Pyodide 0.29.3" → Run workflow
-3. Download the wheel artifact when the run completes
+**On any branch (except `main`)** — the wheel is uploaded as a GitHub Actions artifact (retained 90 days). Download it from the workflow run's summary page.
 
-The GH Actions runner has 16 GB RAM; only 6 GB swap is needed for the Rust link step.
+**On `main`** — a GitHub release named `polars-1.33.1-pyodide-0.29.3` is created (or updated) with the wheel attached directly.
+
+Both paths run the smoke tests (required to pass) and the full official test suite (informational) before uploading.
+
+The GH Actions runner has 16 GB RAM; 6 GB swap is added to cover the ~18 GB peak during the Rust wasm32 link step.
 
 ## Fixes
 
