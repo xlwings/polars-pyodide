@@ -1,87 +1,221 @@
-name: Build Polars 1.18.0 for Pyodide 0.29.3
+name: Build Polars for Pyodide
 
 on:
   push:
-    branches: [main]
+    paths-ignore:
+      - 'README.md'
   workflow_dispatch:
 
 jobs:
-  build-wheel-pyodide:
-    name: build-wheel (polars 1.18.0, pyodide 0.29.3, wasm32)
+  build:
+    name: polars ${{ matrix.polars_version }} × pyodide ${{ matrix.pyodide_version }} (py${{ matrix.python_version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - polars_version: '1.33.1'
+            pyodide_version: '0.29.3'
+            python_version: '3.13'
+            rust_toolchain: 'nightly-2025-08-29'
+            llvm_version: '19'
+            abi3_feature: 'abi3-py39'
 
     steps:
-      - name: Check out Polars 1.18.0
-        uses: actions/checkout@v4
+      - name: Check out Polars ${{ matrix.polars_version }}
+        uses: actions/checkout@v6
         with:
           repository: pola-rs/polars
-          ref: py-1.18.0
+          ref: py-${{ matrix.polars_version }}
 
-      # Rust compilation is memory-intensive; avoid OOM kills
-      - name: Set swap space
-        uses: pierotofy/set-swap-space@master
+      # GH Actions runners have 16 GB RAM (vs 8 GB on the VPS), so 6 GB swap is enough.
+      # The Rust wasm32 link step is the memory bottleneck; RAM + swap must exceed ~18 GB peak.
+      - name: Increase swapfile
+        run: |
+          sudo swapoff -a
+          sudo fallocate -l 6G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          sudo swapon --show
+
+      - name: Set up Python ${{ matrix.python_version }}
+        uses: actions/setup-python@v6
         with:
-          swap-size-gb: 10
+          python-version: ${{ matrix.python_version }}
 
-      - name: Set up Python 3.13
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
+      # pyodide-build provides the `pyodide` CLI and knows the required Emscripten version.
+      # wheel<0.45 must be installed BEFORE pyodide-build (auditwheel-emscripten imports wheel.cli).
+      - name: Install pyodide-build ${{ matrix.pyodide_version }}
+        run: pip install "wheel<0.45" "pyodide-build==${{ matrix.pyodide_version }}"
 
-      # Emscripten 4.0.9 is the exact version used by Pyodide 0.29.3 / pyodide_2025_0 ABI
-      - name: Set up Emscripten 4.0.9
+      - name: Get Emscripten version
+        id: emscripten
+        run: |
+          version=$(pyodide config get emscripten_version)
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Emscripten version: ${version}"
+
+      - name: Set up Emscripten ${{ steps.emscripten.outputs.version }}
         uses: mymindstorm/setup-emsdk@v14
         with:
-          version: 4.0.9
+          version: ${{ steps.emscripten.outputs.version }}
 
-      # LLVM major version must match what Emscripten 4.0.9 expects (LLVM 19)
-      - name: Install LLVM 19
+      # LLVM is required as the Emscripten backend
+      - name: Install LLVM ${{ matrix.llvm_version }}
         run: |
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x llvm.sh
-          sudo ./llvm.sh 19
-          echo "EM_LLVM_ROOT=/usr/lib/llvm-19/bin" >> $GITHUB_ENV
+          wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+          chmod +x /tmp/llvm.sh
+          sudo /tmp/llvm.sh ${{ matrix.llvm_version }}
+          echo "EM_LLVM_ROOT=/usr/lib/llvm-${{ matrix.llvm_version }}/bin" >> $GITHUB_ENV
 
-      # Emscripten 4.0.9 validates that exported symbol names look like C identifiers,
-      # which rejects Rust-mangled names. Patch out that check.
-      - name: Patch Emscripten export name validator
+      # Three locations in Emscripten validate export names as C identifiers;
+      # Rust-mangled symbols fail this check. Patch all three.
+      # Also patch out -wasm-use-legacy-eh injection (LLVM 19 doesn't know this flag).
+      - name: Patch Emscripten
         run: |
           EMROOT=$(em-config EMSCRIPTEN_ROOT)
-          # The check lives in tools/link.py (or similar); disable the C-identifier assertion
           sed -i 's/assert.*c_ident.*export/# patched: skip C-ident check for export/' \
             "$EMROOT/tools/link.py" || true
-          # Fallback: also try shared.py where the validator may live
           sed -i 's/def check_export_name/def _disabled_check_export_name/' \
             "$EMROOT/tools/shared.py" || true
+          sed -i "s/      exit_with_error(f'invalid export name: {n}')/      pass  # patched: skip invalid export name check/" \
+            "$EMROOT/tools/emscripten.py" || true
+          grep -rl 'wasm-use-legacy-eh' "$EMROOT" | \
+            xargs sed -i 's/.*wasm-use-legacy-eh.*/        pass  # patched/' || true
+          echo "Patched Emscripten at $EMROOT"
 
-      # Strip features that have no wasm32 support. tokio (async runtime) is the main blocker;
-      # parquet/cloud/decompress pull in tokio or OS-level I/O that doesn't exist in WASM.
-      - name: Disable incompatible Cargo features
-        env:
-          FEATURES: parquet|async|json|extract_jsonpath|cloud|polars_cloud|tokio|clipboard|decompress|new_streaming
+      # Use `rustup default` (not `override set`) so the toolchain applies regardless
+      # of working directory — override set is per-directory only.
+      - name: Install Rust ${{ matrix.rust_toolchain }} + wasm32 target
         run: |
-          sed -i 's/^  "json",$/  "serde_json",/' crates/polars-python/Cargo.toml
+          rustup toolchain install ${{ matrix.rust_toolchain }} --no-self-update
+          rustup target add wasm32-unknown-emscripten --toolchain ${{ matrix.rust_toolchain }}
+          rustup component add rust-src --toolchain ${{ matrix.rust_toolchain }}
+          rustup default ${{ matrix.rust_toolchain }}
+
+      - name: Install maturin + wheel
+        run: pip install maturin==1.7.4 "wheel<0.45"
+
+      - name: Install Pyodide xbuildenv ${{ matrix.pyodide_version }}
+        run: |
+          pyodide xbuildenv install ${{ matrix.pyodide_version }}
+          SYSCONFIG_DIR=$(find "$GITHUB_WORKSPACE" /root /home -name "_sysconfigdata_*emscripten*.py" 2>/dev/null | head -1 | xargs dirname)
+          echo "PYO3_CROSS_LIB_DIR=$SYSCONFIG_DIR" >> $GITHUB_ENV
+          echo "PYTHONPATH=$SYSCONFIG_DIR:$PYTHONPATH" >> $GITHUB_ENV
+          echo "sysconfig dir: $SYSCONFIG_DIR"
+
+      # Delete rust-toolchain.toml so Polars' own pinned nightly isn't downloaded
+      # (we've already installed and defaulted to our pinned nightly above).
+      - name: Remove rust-toolchain.toml
+        run: rm -f rust-toolchain.toml
+
+      - name: Patch Cargo features
+        run: |
+          # serde_json is optional=true in polars-python; make it non-optional before
+          # removing the "json" feature entry (otherwise cargo errors on the feature ref).
+          sed -i 's/serde_json = { workspace = true, optional = true }/serde_json = { workspace = true }/' \
+            crates/polars-python/Cargo.toml || true
+          sed -i 's/  "serde_json", //' crates/polars-python/Cargo.toml || true
+
+          # csv/ipc/json in crates/polars/Cargo.toml include "new_streaming", which pulls in
+          # polars-stream -> polars-io[async,file_cache] -> tokio -> mio (no wasm32 support).
+          # Removing "new_streaming" from those feature lines breaks the chain.
+          sed -i 's/, "new_streaming"//' crates/polars/Cargo.toml || true
+
+          # Strip all remaining wasm-incompatible features from polars-python and py-polars.
+          FEATURES='parquet|json|extract_jsonpath|catalog|cloud|polars_cloud|polars_cloud_client|polars_cloud_server|clipboard|decompress|new_streaming'
           sed -E -i "/^  \"(${FEATURES})\",$/d" crates/polars-python/Cargo.toml py-polars/Cargo.toml
+          sed -E -i "/^(${FEATURES}) = \[/d"    crates/polars-python/Cargo.toml py-polars/Cargo.toml
 
-      - name: Set compiler flags for wasm32
+          # Remove abi3 feature so maturin produces an exact cpython-tagged wheel
+          # (xbuildenv sysconfig only works with the exact Python version, not abi3)
+          sed -i 's/"${{ matrix.abi3_feature }}", //' py-polars/Cargo.toml crates/polars-python/Cargo.toml || true
+
+      - name: Pre-fetch Cargo dependencies
+        run: cargo fetch --manifest-path py-polars/Cargo.toml
+
+      # build-std recompiles std + panic_unwind from source with native wasm EH,
+      # eliminating invoke_* trampolines that Pyodide doesn't export.
+      # build-std-features uses "panic-unwind" (hyphen) for nightly-2025-08-29+.
+      - name: Write .cargo/config.toml
         run: |
-          echo "CFLAGS=-fPIC" >> $GITHUB_ENV
-          echo "RUSTFLAGS=-C link-self-contained=no" >> $GITHUB_ENV
+          mkdir -p .cargo
+          cat > .cargo/config.toml << 'EOF'
+          [unstable]
+          build-std = ["std", "panic_unwind"]
+          build-std-features = ["panic-unwind"]
+
+          [build]
+          rustflags = ["-C", "link-self-contained=no", "-Z", "emscripten-wasm-eh", "-C", "link-arg=-sSUPPORT_LONGJMP=wasm", "-C", "link-arg=-sSTACK_SIZE=4194304"]
+          EOF
 
       - name: Build wheel
-        uses: PyO3/maturin-action@v1
+        env:
+          # -fwasm-exceptions: compile C deps (lz4, zstd, mimalloc, psm) with native wasm EH
+          CFLAGS: "-fPIC -fwasm-exceptions"
+          CXXFLAGS: "-fPIC -fwasm-exceptions"
+          PYO3_NO_PYTHON: "1"
+          # dist-release uses lto=fat which triggers SIGILL in this nightly; use --release + LTO off
+          CARGO_PROFILE_RELEASE_LTO: "off"
+        run: |
+          maturin build \
+            --release \
+            --manifest-path py-polars/Cargo.toml \
+            --target wasm32-unknown-emscripten \
+            --interpreter python${{ matrix.python_version }} \
+            --out wasm-dist \
+            2>&1 | tee /tmp/maturin.log
+          echo "=== ERRORS ==="
+          grep -E '^error' /tmp/maturin.log || echo "(no error lines)"
+          grep -i 'undefined symbol\|cannot find\|ld returned\|link.*error\|error\[' /tmp/maturin.log | head -50 || true
+          grep -q '💥 maturin failed' /tmp/maturin.log && exit 1 || true
+
+      - name: Retag wheel for Pyodide
+        run: |
+          python3 -m venv /tmp/wheel-retag-env
+          /tmp/wheel-retag-env/bin/pip install -q "wheel<0.45"
+          /tmp/wheel-retag-env/bin/wheel tags \
+            --platform-tag pyodide_2025_0_wasm32 \
+            --remove \
+            wasm-dist/*.whl
+          ls wasm-dist/
+
+      - name: Checkout this repo (for test scripts)
+        uses: actions/checkout@v6
         with:
-          command: build
-          target: wasm32-unknown-emscripten
-          args: >
-            --profile dist-release
-            --manifest-path py-polars/Cargo.toml
-            --interpreter python3.13
-            --out wasm-dist
-          maturin-version: 1.7.4
+          path: polars-pyodide
+
+      - name: Install Playwright
+        run: |
+          npm install playwright
+          npx playwright install chromium --with-deps
+
+      - name: Run smoke tests (required to pass)
+        run: node polars-pyodide/test-runner.mjs --strict polars-pyodide/test-smoke.html wasm-dist
+
+      - name: Run official test suite (informational only)
+        run: node polars-pyodide/test-runner.mjs polars-pyodide/test-official.html wasm-dist
 
       - name: Upload wheel artifact
-        uses: actions/upload-artifact@v4
+        if: github.ref != 'refs/heads/main'
+        uses: actions/upload-artifact@v6
         with:
-          name: polars-1.18.0-cp313-pyodide_2025_0-wasm32
+          name: polars-${{ matrix.polars_version }}-cp${{ matrix.python_version }}-pyodide_2025_0-wasm32
           path: wasm-dist/*.whl
+          retention-days: 90
+
+      - name: Create or update GitHub release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG="polars-${{ matrix.polars_version }}-pyodide-${{ matrix.pyodide_version }}"
+
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "" \
+            wasm-dist/*.whl \
+          || gh release upload "$TAG" \
+            wasm-dist/*.whl --clobber

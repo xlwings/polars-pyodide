@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Polars Pyodide Test</title>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4; }
+    h1 { color: #569cd6; }
+    #output { white-space: pre; background: #252526; padding: 16px; border-radius: 4px; min-height: 200px; }
+    .ok   { color: #4ec9b0; }
+    .err  { color: #f48771; }
+    .info { color: #9cdcfe; }
+    .fail { color: #f48771; font-weight: bold; }
+    .pass { color: #4ec9b0; }
+  </style>
+</head>
+<body>
+  <h1>Polars / Pyodide 0.29.3 test</h1>
+  <div id="output">Loading Pyodide…</div>
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.29.3/full/pyodide.js"></script>
+  <script>
+    const out = document.getElementById('output');
+    function log(msg, cls) {
+      const span = document.createElement('span');
+      if (cls) span.className = cls;
+      span.textContent = msg + '\n';
+      out.appendChild(span);
+    }
+
+    // Change WHEEL_FILE to switch between versions
+    const WHEEL_FILE = 'polars-1.33.1-cp313-cp313-pyodide_2025_0_wasm32.whl';
+
+    const TESTS = [
+      {
+        name: 'test_polars_basics',
+        code: `
+import polars as pl
+
+df = pl.DataFrame(
+    {"a": [1, 2, 3, 4], "b": [10, 20, 30, 40], "c": ["x", "y", "z", "w"]}
+)
+
+assert df.shape == (4, 3)
+assert df.select("a").to_series().to_list() == [1, 2, 3, 4]
+
+result = df.select(pl.col("b").sum()).item()
+assert result == 100
+
+result = df.select(pl.col("c").str.to_uppercase()).to_series().to_list()
+assert result == ["X", "Y", "Z", "W"]
+
+"ok"
+`,
+      },
+      {
+        name: 'test_polars_operations',
+        code: `
+import polars as pl
+
+df = pl.DataFrame({"nums": [1, 2, 3, None, 5], "groups": ["A", "A", "B", "B", "C"]})
+
+assert df["nums"].null_count() == 1
+
+result = (
+    df.group_by("groups")
+    .agg(pl.col("nums").mean())
+    .sort("groups")
+    .to_dict(as_series=False)
+)
+
+expected = {"groups": ["A", "B", "C"], "nums": [1.5, 3.0, 5.0]}
+assert result == expected
+
+"ok"
+`,
+      },
+      {
+        name: 'test_polars_dtypes',
+        code: `
+import polars as pl
+
+df = pl.DataFrame(
+    {
+        "ints": [1, 2, 3],
+        "floats": [1.1, 2.2, 3.3],
+        "strings": ["a", "b", "c"],
+        "bools": [True, False, True],
+    }
+)
+
+assert df["ints"].dtype == pl.Int64
+assert df["floats"].dtype == pl.Float64
+assert df["strings"].dtype == pl.String
+assert df["bools"].dtype == pl.Boolean
+
+result = df.select(pl.col("ints").cast(pl.Float32))
+assert result["ints"].dtype == pl.Float32
+
+"ok"
+`,
+      },
+      {
+        name: 'test_polars_read_csv',
+        code: `
+import polars as pl
+import io
+
+csv_data = """name,score,passed
+Alice,95,true
+Bob,82,true
+Charlie,58,false
+"""
+
+df = pl.read_csv(io.StringIO(csv_data))
+
+assert df.shape == (3, 3)
+assert df["name"].to_list() == ["Alice", "Bob", "Charlie"]
+assert df["score"].to_list() == [95, 82, 58]
+assert df.filter(pl.col("passed")).shape == (2, 3)
+
+"ok"
+`,
+      },
+    ];
+
+    async function main() {
+      out.textContent = '';
+      log('Loading Pyodide 0.29.3…', 'info');
+      const pyodide = await loadPyodide();
+      log('Pyodide ready.', 'ok');
+
+      log('Installing polars wheel via micropip…', 'info');
+      await pyodide.loadPackage('micropip');
+      const micropip = pyodide.pyimport('micropip');
+
+      const wheelUrl = new URL('./wasm-dist/' + WHEEL_FILE, location.href).href;
+      log('Wheel URL: ' + wheelUrl, 'info');
+      await micropip.install(wheelUrl);
+      log('Wheel installed.\n', 'ok');
+
+      log('Running tests…', 'info');
+      let passed = 0, failed = 0;
+      for (const test of TESTS) {
+        try {
+          await pyodide.runPythonAsync(test.code);
+          log('  PASS  ' + test.name, 'pass');
+          passed++;
+        } catch (e) {
+          log('  FAIL  ' + test.name, 'fail');
+          log('        ' + e, 'err');
+          failed++;
+        }
+      }
+
+      log('');
+      const total = passed + failed;
+      if (failed === 0) {
+        log(`${passed}/${total} passed`, 'ok');
+      } else {
+        log(`${passed}/${total} passed, ${failed} failed`, 'fail');
+      }
+    }
+
+    main().catch(e => {
+      log('\nERROR: ' + e, 'err');
+      console.error(e);
+    });
+  </script>
+</body>
+</html>
