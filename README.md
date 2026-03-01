@@ -74,6 +74,8 @@ The `dist-release` Cargo profile enables `lto = "fat"`, which triggers an illega
 CARGO_PROFILE_RELEASE_LTO=off maturin build --release ...
 ```
 
+**Size impact:** disabling LTO prevents dead-code elimination across crate boundaries, meaningfully increasing wheel size compared to a native release build.
+
 ### 2. Emscripten export name validation
 
 Emscripten 4.0.14 validates that all exported symbols are valid C identifiers. Rust-mangled symbols are not, so the link fails. The check exists in **three places**:
