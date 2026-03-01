@@ -4,9 +4,9 @@ Builds [Polars](https://github.com/pola-rs/polars) 1.33.1 as a [Pyodide](https:/
 
 ## Version ceiling
 
-**1.33.1 is the highest Polars version buildable for wasm32.** Polars 1.18.0 was the last version shipped with Pyodide (through 0.27.7) before it was dropped from Pyodide 0.28+ due Pyodide having upgraded its build toolchain from (Python 3.12, Emscripten 3.1.58) to (Python 3.13, Emscripten 4.0.9).
+**1.33.1 is the highest Polars version buildable for wasm32.** Polars 1.18.0 was the last version shipped with Pyodide (through 0.27.7) before it was dropped from Pyodide 0.28+ due Pyodide having upgraded its build toolchain from (Python 3.12, Emscripten 3.1.58) to (Python 3.13, Emscripten 4.0.9). A previous attempt in building polars against Pyodide 0.29 was made in [#24058](https://github.com/pola-rs/polars/pull/24058).
 
-From **1.34.0** onwards, `polars-stream` became a standalone crate with unconditional `tokio`, `rayon`, and `crossbeam-*` dependencies. These do not support `wasm32-unknown-emscripten`, and removing them would require architectural changes to the streaming engine. The Polars core team dropped the Pyodide build in [#24630](https://github.com/pola-rs/polars/pull/24630) citing recurring `mio` incompatibilities with no intention to make it optional, see [#26484](https://github.com/pola-rs/polars/pull/26484); the tracking issue is [#22231](https://github.com/pola-rs/polars/issues/22231). As a result, 1.34.0+ cannot be built for Pyodide without upstream changes. A previous attempt in building polars against Pyodide 0.29 was made in [#24058](https://github.com/pola-rs/polars/pull/24058).
+From **1.34.0** onwards, `polars-stream` became a standalone crate with unconditional `tokio`, `rayon`, and `crossbeam-*` dependencies. These do not support `wasm32-unknown-emscripten`, and removing them would require architectural changes to the streaming engine. The Polars core team dropped the Pyodide build in [#24630](https://github.com/pola-rs/polars/pull/24630) citing recurring `mio` incompatibilities with no intention to make it optional, see [#26484](https://github.com/pola-rs/polars/pull/26484); the tracking issue is [#22231](https://github.com/pola-rs/polars/issues/22231). As a result, 1.34.0+ cannot be built for Pyodide without upstream changes.
 
 ## Testing
 
