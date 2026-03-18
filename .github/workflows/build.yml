@@ -216,6 +216,4 @@ jobs:
           gh release create "$TAG" \
             --title "$TAG" \
             --notes "" \
-            wasm-dist/*.whl \
-          || gh release upload "$TAG" \
-            wasm-dist/*.whl --clobber
+            wasm-dist/*.whl
