@@ -143,7 +143,7 @@ assert df.filter(pl.col("passed")).shape == (2, 3)
       const dirResp = await fetch('./wasm-dist/');
       if (!dirResp.ok) { log('ERROR: Could not list /wasm-dist/', 'err'); return; }
       const dirText = await dirResp.text();
-      const wheels = [...dirText.matchAll(/polars-[^\s"'<>]+\.whl/g)].map(m => m[0]);
+      const wheels = [...new Set([...dirText.matchAll(/polars-[^\s"'<>]+\.whl/g)].map(m => m[0]))];
       if (wheels.length !== 1) {
         log(`ERROR: Expected exactly 1 wheel in /wasm-dist/, found ${wheels.length}: ${wheels.join(', ')}`, 'err');
         return;

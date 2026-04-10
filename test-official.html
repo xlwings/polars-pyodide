@@ -399,7 +399,7 @@ class PyCapsuleArrayHolder:
       const dirResp = await fetch('./wasm-dist/');
       if (!dirResp.ok) { setStatus('ERROR'); log('ERROR: Could not list /wasm-dist/', 'err'); return; }
       const dirText = await dirResp.text();
-      const wheels = [...dirText.matchAll(/polars-[^\s"'<>]+\.whl/g)].map(m => m[0]);
+      const wheels = [...new Set([...dirText.matchAll(/polars-[^\s"'<>]+\.whl/g)].map(m => m[0]))];
       if (wheels.length !== 1) {
         const msg = `Expected exactly 1 wheel in /wasm-dist/, found ${wheels.length}: ${wheels.join(', ')}`;
         setStatus('ERROR'); log('ERROR: ' + msg, 'err'); return;

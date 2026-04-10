@@ -84,12 +84,15 @@ console.log(`Opening: ${pageUrl}\n`);
 const browser = await chromium.launch();
 const page = await browser.newPage();
 
-// Forward browser console to stdout
+// Forward browser console and uncaught errors to stdout
 page.on('console', msg => {
   const type = msg.type();
   const text = msg.text();
   if (type === 'error') process.stderr.write(`[browser:error] ${text}\n`);
   else process.stdout.write(`[browser:${type}] ${text}\n`);
+});
+page.on('pageerror', err => {
+  process.stderr.write(`[browser:pageerror] ${err}\n`);
 });
 
 // Timeout: 15 minutes (test-official takes several minutes)
@@ -116,6 +119,9 @@ try {
     return summary && summary.textContent.trim().length > 0;
   }, null, { timeout: TIMEOUT_MS });
 } catch (e) {
+  // Dump page content on timeout for debugging
+  const html = await page.evaluate(() => document.getElementById('output')?.innerText ?? '(no #output)');
+  console.error('Page #output at timeout:\n' + html);
   console.error('Timed out waiting for test results.');
   await browser.close();
   server.close();
