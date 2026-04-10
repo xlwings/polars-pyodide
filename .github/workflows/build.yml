@@ -51,15 +51,8 @@ jobs:
           python-version: ${{ matrix.python_version }}
           allow-prereleases: true
 
-      # pyodide-build provides the `pyodide` CLI and knows the required Emscripten version.
-      # wheel<0.45 must be installed BEFORE pyodide-build (auditwheel-emscripten imports wheel.cli).
-      - name: Install pyodide-build ${{ matrix.pyodide_version }}
-        run: |
-          if [[ "${{ matrix.pyodide_version }}" == 314.* ]]; then
-            pip install "pyodide-build==0.34.1"
-          else
-            pip install "wheel<0.45" "pyodide-build==${{ matrix.pyodide_version }}"
-          fi
+      - name: Install pyodide-build
+        run: pip install pyodide-build
 
       - name: Get Emscripten version
         id: emscripten
@@ -187,22 +180,20 @@ jobs:
 
       - name: Retag wheel for Pyodide
         run: |
-          # Determine the correct platform tag for this pyodide version.
-          # pyodide 314.x uses emscripten_X_Y_Z_wasm32; older uses pyodide_YYYY_N_wasm32.
-          if [[ "${{ matrix.pyodide_version }}" == 314.* ]]; then
-            EMVER="${{ steps.emscripten.outputs.version }}"
-            PLATFORM_TAG="emscripten_${EMVER//./_}_wasm32"
-          else
-            PLATFORM_TAG="pyodide_2025_0_wasm32"
+          echo "Wheel before retag:"
+          ls wasm-dist/*.whl
+          # For pyodide 314.x, maturin already produces the correct emscripten platform
+          # tag from sysconfig — no retag needed. For older pyodide, retag to pyodide_YYYY_N_wasm32.
+          if [[ "${{ matrix.pyodide_version }}" != 314.* ]]; then
+            python3 -m venv /tmp/wheel-retag-env
+            /tmp/wheel-retag-env/bin/pip install -q "wheel<0.45"
+            /tmp/wheel-retag-env/bin/wheel tags \
+              --platform-tag pyodide_2025_0_wasm32 \
+              --remove \
+              wasm-dist/*.whl
           fi
-          echo "Platform tag: $PLATFORM_TAG"
-          python3 -m venv /tmp/wheel-retag-env
-          /tmp/wheel-retag-env/bin/pip install -q "wheel<0.45"
-          /tmp/wheel-retag-env/bin/wheel tags \
-            --platform-tag "$PLATFORM_TAG" \
-            --remove \
-            wasm-dist/*.whl
-          ls wasm-dist/
+          echo "Wheel after retag:"
+          ls wasm-dist/*.whl
 
       - name: Checkout this repo (for test scripts)
         uses: actions/checkout@v6

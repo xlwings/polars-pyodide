@@ -394,6 +394,18 @@ class PyCapsuleArrayHolder:
     async function main() {
       out.textContent = '';
 
+      // ── 0. Discover wheel filename — expect exactly one .whl ──────────
+      setStatus('Discovering wheel file…');
+      const dirResp = await fetch('./wasm-dist/');
+      if (!dirResp.ok) { setStatus('ERROR'); log('ERROR: Could not list /wasm-dist/', 'err'); return; }
+      const dirText = await dirResp.text();
+      const wheels = [...dirText.matchAll(/polars-[^\s"'<>]+\.whl/g)].map(m => m[0]);
+      if (wheels.length !== 1) {
+        const msg = `Expected exactly 1 wheel in /wasm-dist/, found ${wheels.length}: ${wheels.join(', ')}`;
+        setStatus('ERROR'); log('ERROR: ' + msg, 'err'); return;
+      }
+      const wheelFile = wheels[0];
+
       // ── 1. Load Pyodide ──────────────────────────────────────────────────
       setStatus(`Loading Pyodide ${PYODIDE_VERSION}…`);
       await pyodideReady;
@@ -401,12 +413,12 @@ class PyCapsuleArrayHolder:
       log(`Pyodide ${PYODIDE_VERSION} ready.`, 'ok');
 
       // ── 2. Install polars wheel ──────────────────────────────────────────
-      setStatus('Installing polars 1.33.1…');
+      setStatus('Installing polars wheel…');
       await pyodide.loadPackage('micropip');
       const micropip = pyodide.pyimport('micropip');
-      const wheelUrl = new URL('./wasm-dist/polars-1.33.1-cp313-cp313-pyodide_2025_0_wasm32.whl', location.href).href;
+      const wheelUrl = new URL('./wasm-dist/' + wheelFile, location.href).href;
       await micropip.install(wheelUrl);
-      log('polars 1.33.1 installed.', 'ok');
+      log(`${wheelFile} installed.`, 'ok');
 
       // ── 3. Install test dependencies ─────────────────────────────────────
       setStatus('Installing pytest, numpy, pandas, pyarrow, tzdata, pydantic, hypothesis, packaging, altair…');

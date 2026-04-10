@@ -7,7 +7,7 @@
 
 import { chromium } from 'playwright';
 import { createServer } from 'http';
-import { readFile } from 'fs/promises';
+import { readFile, readdir } from 'fs/promises';
 import { extname, resolve, basename } from 'path';
 
 const rawArgs = process.argv.slice(2);
@@ -41,8 +41,21 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const pathname = url.pathname;
 
+  // /wasm-dist/ (no trailing filename) → directory listing
   // /wasm-dist/* → wheelDir
   // everything else → htmlDir
+  if (pathname === '/wasm-dist/' || pathname === '/wasm-dist') {
+    try {
+      const files = await readdir(wheelDir);
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(files.map(f => `<a href="${f}">${f}</a>`).join('\n'));
+    } catch {
+      res.writeHead(404);
+      res.end('Not found: ' + wheelDir);
+    }
+    return;
+  }
+
   let filePath;
   if (pathname.startsWith('/wasm-dist/')) {
     filePath = resolve(wheelDir, pathname.replace(/^\/wasm-dist\//, ''));
