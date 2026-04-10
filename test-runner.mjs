@@ -87,7 +87,9 @@ const page = await browser.newPage();
 // Forward browser console to stdout
 page.on('console', msg => {
   const type = msg.type();
-  if (type === 'error') process.stderr.write(`[browser:error] ${msg.text()}\n`);
+  const text = msg.text();
+  if (type === 'error') process.stderr.write(`[browser:error] ${text}\n`);
+  else process.stdout.write(`[browser:${type}] ${text}\n`);
 });
 
 // Timeout: 15 minutes (test-official takes several minutes)
