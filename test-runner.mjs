@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Runs a polars-pyodide test HTML file via Playwright + a local HTTP server.
-// Usage: node test-runner.mjs <test-smoke.html|test-official.html> [wheel-dir]
+// Usage: node test-runner.mjs [--strict] [--pyodide-version=X.Y.Z] <test-smoke.html|test-official.html> [wheel-dir]
 //
 // The wheel dir defaults to ./wasm-dist and is served at /wasm-dist/.
 // Exit code: 0 = all tests passed, 1 = failures or error.
@@ -10,8 +10,11 @@ import { createServer } from 'http';
 import { readFile } from 'fs/promises';
 import { extname, resolve, basename } from 'path';
 
-const args = process.argv.slice(2).filter(a => a !== '--strict');
-const strict = process.argv.includes('--strict');
+const rawArgs = process.argv.slice(2);
+const strict = rawArgs.includes('--strict');
+const pyodideFlag = rawArgs.find(a => a.startsWith('--pyodide-version='));
+const pyodideVersion = pyodideFlag ? pyodideFlag.split('=')[1] : null;
+const args = rawArgs.filter(a => a !== '--strict' && !a.startsWith('--pyodide-version='));
 const htmlFile = resolve(args[0]);
 const wheelDir = resolve(args[1] ?? 'wasm-dist');
 
@@ -59,7 +62,8 @@ const server = createServer(async (req, res) => {
 
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const { port } = server.address();
-const pageUrl = `http://127.0.0.1:${port}/${basename(htmlFile)}`;
+const qs = pyodideVersion ? `?pyodide=${pyodideVersion}` : '';
+const pageUrl = `http://127.0.0.1:${port}/${basename(htmlFile)}${qs}`;
 
 console.log(`Serving repo at http://127.0.0.1:${port}`);
 console.log(`Opening: ${pageUrl}\n`);

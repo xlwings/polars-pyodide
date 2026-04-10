@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Polars Official Test Suite — Pyodide 0.29.3</title>
+  <title>Polars Official Test Suite — Pyodide</title>
   <style>
     body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4; font-size: 13px; }
     h1 { color: #569cd6; margin-bottom: 4px; }
@@ -20,14 +20,27 @@
   </style>
 </head>
 <body>
-  <h1>Polars 1.33.1 — Official Test Suite in Pyodide 0.29.3</h1>
+  <h1 id="title">Polars 1.33.1 — Official Test Suite in Pyodide</h1>
   <p class="sub">Runs 303 official unit test files from the local <code>tests/unit/</code> directory via pytest inside Pyodide. Full output (including collection errors) is in the browser <strong>Console</strong> (F12).</p>
   <div id="status">Initialising…</div>
   <div id="current-test" style="color:#858585; font-size:11px; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div>
   <div id="output"></div>
   <div id="summary"></div>
 
-  <script src="https://cdn.jsdelivr.net/pyodide/v0.29.3/full/pyodide.js"></script>
+  <script>
+    // Allow overriding pyodide version via ?pyodide=314.0.0a1 query param
+    const PYODIDE_VERSION = new URLSearchParams(location.search).get('pyodide') || '0.29.3';
+    document.getElementById('title').textContent = `Polars 1.33.1 — Official Test Suite in Pyodide ${PYODIDE_VERSION}`;
+
+    // Load pyodide.js dynamically based on version
+    const pyodideReady = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/pyodide.js`;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error(`Failed to load pyodide.js for version ${PYODIDE_VERSION}`));
+      document.head.appendChild(s);
+    });
+  </script>
   <script>
     const statusEl = document.getElementById('status');
     const out = document.getElementById('output');
@@ -382,9 +395,10 @@ class PyCapsuleArrayHolder:
       out.textContent = '';
 
       // ── 1. Load Pyodide ──────────────────────────────────────────────────
-      setStatus('Loading Pyodide 0.29.3…');
+      setStatus(`Loading Pyodide ${PYODIDE_VERSION}…`);
+      await pyodideReady;
       const pyodide = await loadPyodide();
-      log('Pyodide 0.29.3 ready.', 'ok');
+      log(`Pyodide ${PYODIDE_VERSION} ready.`, 'ok');
 
       // ── 2. Install polars wheel ──────────────────────────────────────────
       setStatus('Installing polars 1.33.1…');
