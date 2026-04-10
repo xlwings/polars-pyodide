@@ -15,9 +15,22 @@
   </style>
 </head>
 <body>
-  <h1>Polars / Pyodide 0.29.3 test</h1>
+  <h1 id="title">Polars / Pyodide smoke test</h1>
   <div id="output">Loading Pyodide…</div>
-  <script src="https://cdn.jsdelivr.net/pyodide/v0.29.3/full/pyodide.js"></script>
+  <script>
+    // Allow overriding pyodide version via ?pyodide=314.0.0a1 query param
+    const PYODIDE_VERSION = new URLSearchParams(location.search).get('pyodide') || '0.29.3';
+    document.getElementById('title').textContent = `Polars / Pyodide ${PYODIDE_VERSION} smoke test`;
+
+    // Load pyodide.js dynamically based on version
+    const pyodideReady = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/pyodide.js`;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error(`Failed to load pyodide.js for version ${PYODIDE_VERSION}`));
+      document.head.appendChild(s);
+    });
+  </script>
   <script>
     const out = document.getElementById('output');
     function log(msg, cls) {
@@ -27,8 +40,7 @@
       out.appendChild(span);
     }
 
-    // Change WHEEL_FILE to switch between versions
-    const WHEEL_FILE = 'polars-1.33.1-cp313-cp313-pyodide_2025_0_wasm32.whl';
+    // Wheel filename is discovered dynamically from /wasm-dist/ directory listing
 
     const TESTS = [
       {
@@ -125,7 +137,21 @@ assert df.filter(pl.col("passed")).shape == (2, 3)
 
     async function main() {
       out.textContent = '';
-      log('Loading Pyodide 0.29.3…', 'info');
+
+      // Discover wheel filename dynamically — expect exactly one .whl
+      log('Discovering wheel file…', 'info');
+      const dirResp = await fetch('./wasm-dist/');
+      if (!dirResp.ok) { log('ERROR: Could not list /wasm-dist/', 'err'); return; }
+      const dirText = await dirResp.text();
+      const wheels = [...new Set([...dirText.matchAll(/polars-[^\s"'<>]+\.whl/g)].map(m => m[0]))];
+      if (wheels.length !== 1) {
+        log(`ERROR: Expected exactly 1 wheel in /wasm-dist/, found ${wheels.length}: ${wheels.join(', ')}`, 'err');
+        return;
+      }
+      const wheelFile = wheels[0];
+
+      log(`Loading Pyodide ${PYODIDE_VERSION}…`, 'info');
+      await pyodideReady;
       const pyodide = await loadPyodide();
       log('Pyodide ready.', 'ok');
 
@@ -133,7 +159,7 @@ assert df.filter(pl.col("passed")).shape == (2, 3)
       await pyodide.loadPackage('micropip');
       const micropip = pyodide.pyimport('micropip');
 
-      const wheelUrl = new URL('./wasm-dist/' + WHEEL_FILE, location.href).href;
+      const wheelUrl = new URL('./wasm-dist/' + wheelFile, location.href).href;
       log('Wheel URL: ' + wheelUrl, 'info');
       await micropip.install(wheelUrl);
       log('Wheel installed.\n', 'ok');

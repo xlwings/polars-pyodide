@@ -1,17 +1,20 @@
 #!/usr/bin/env node
 // Runs a polars-pyodide test HTML file via Playwright + a local HTTP server.
-// Usage: node test-runner.mjs <test-smoke.html|test-official.html> [wheel-dir]
+// Usage: node test-runner.mjs [--strict] [--pyodide-version=X.Y.Z] <test-smoke.html|test-official.html> [wheel-dir]
 //
 // The wheel dir defaults to ./wasm-dist and is served at /wasm-dist/.
 // Exit code: 0 = all tests passed, 1 = failures or error.
 
 import { chromium } from 'playwright';
 import { createServer } from 'http';
-import { readFile } from 'fs/promises';
+import { readFile, readdir } from 'fs/promises';
 import { extname, resolve, basename } from 'path';
 
-const args = process.argv.slice(2).filter(a => a !== '--strict');
-const strict = process.argv.includes('--strict');
+const rawArgs = process.argv.slice(2);
+const strict = rawArgs.includes('--strict');
+const pyodideFlag = rawArgs.find(a => a.startsWith('--pyodide-version='));
+const pyodideVersion = pyodideFlag ? pyodideFlag.split('=')[1] : null;
+const args = rawArgs.filter(a => a !== '--strict' && !a.startsWith('--pyodide-version='));
 const htmlFile = resolve(args[0]);
 const wheelDir = resolve(args[1] ?? 'wasm-dist');
 
@@ -38,8 +41,21 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const pathname = url.pathname;
 
+  // /wasm-dist/ (no trailing filename) → directory listing
   // /wasm-dist/* → wheelDir
   // everything else → htmlDir
+  if (pathname === '/wasm-dist/' || pathname === '/wasm-dist') {
+    try {
+      const files = await readdir(wheelDir);
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(files.map(f => `<a href="${f}">${f}</a>`).join('\n'));
+    } catch {
+      res.writeHead(404);
+      res.end('Not found: ' + wheelDir);
+    }
+    return;
+  }
+
   let filePath;
   if (pathname.startsWith('/wasm-dist/')) {
     filePath = resolve(wheelDir, pathname.replace(/^\/wasm-dist\//, ''));
@@ -59,7 +75,8 @@ const server = createServer(async (req, res) => {
 
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const { port } = server.address();
-const pageUrl = `http://127.0.0.1:${port}/${basename(htmlFile)}`;
+const qs = pyodideVersion ? `?pyodide=${pyodideVersion}` : '';
+const pageUrl = `http://127.0.0.1:${port}/${basename(htmlFile)}${qs}`;
 
 console.log(`Serving repo at http://127.0.0.1:${port}`);
 console.log(`Opening: ${pageUrl}\n`);
@@ -67,10 +84,15 @@ console.log(`Opening: ${pageUrl}\n`);
 const browser = await chromium.launch();
 const page = await browser.newPage();
 
-// Forward browser console to stdout
+// Forward browser console and uncaught errors to stdout
 page.on('console', msg => {
   const type = msg.type();
-  if (type === 'error') process.stderr.write(`[browser:error] ${msg.text()}\n`);
+  const text = msg.text();
+  if (type === 'error') process.stderr.write(`[browser:error] ${text}\n`);
+  else process.stdout.write(`[browser:${type}] ${text}\n`);
+});
+page.on('pageerror', err => {
+  process.stderr.write(`[browser:pageerror] ${err}\n`);
 });
 
 // Timeout: 15 minutes (test-official takes several minutes)
@@ -97,6 +119,9 @@ try {
     return summary && summary.textContent.trim().length > 0;
   }, null, { timeout: TIMEOUT_MS });
 } catch (e) {
+  // Dump page content on timeout for debugging
+  const html = await page.evaluate(() => document.getElementById('output')?.innerText ?? '(no #output)');
+  console.error('Page #output at timeout:\n' + html);
   console.error('Timed out waiting for test results.');
   await browser.close();
   server.close();
