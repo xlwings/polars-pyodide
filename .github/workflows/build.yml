@@ -187,10 +187,19 @@ jobs:
 
       - name: Retag wheel for Pyodide
         run: |
+          # Determine the correct platform tag for this pyodide version.
+          # pyodide 314.x uses emscripten_X_Y_Z_wasm32; older uses pyodide_YYYY_N_wasm32.
+          if [[ "${{ matrix.pyodide_version }}" == 314.* ]]; then
+            EMVER="${{ steps.emscripten.outputs.version }}"
+            PLATFORM_TAG="emscripten_${EMVER//./_}_wasm32"
+          else
+            PLATFORM_TAG="pyodide_2025_0_wasm32"
+          fi
+          echo "Platform tag: $PLATFORM_TAG"
           python3 -m venv /tmp/wheel-retag-env
           /tmp/wheel-retag-env/bin/pip install -q "wheel<0.45"
           /tmp/wheel-retag-env/bin/wheel tags \
-            --platform-tag pyodide_2025_0_wasm32 \
+            --platform-tag "$PLATFORM_TAG" \
             --remove \
             wasm-dist/*.whl
           ls wasm-dist/
@@ -215,7 +224,7 @@ jobs:
         if: github.ref != 'refs/heads/main'
         uses: actions/upload-artifact@v6
         with:
-          name: polars-${{ matrix.polars_version }}-cp${{ matrix.python_version }}-pyodide_2025_0-wasm32
+          name: polars-${{ matrix.polars_version }}-cp${{ matrix.python_version }}-pyodide-${{ matrix.pyodide_version }}-wasm32
           path: wasm-dist/*.whl
           retention-days: 90
 
