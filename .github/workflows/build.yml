@@ -73,8 +73,10 @@ jobs:
         with:
           version: ${{ steps.emscripten.outputs.version }}
 
-      # LLVM is required as the Emscripten backend
+      # LLVM is required as the Emscripten backend.
+      # For pyodide 314.x, emsdk bundles its own matching LLVM — no separate install needed.
       - name: Install LLVM ${{ matrix.llvm_version }}
+        if: ${{ !startsWith(matrix.pyodide_version, '314.') }}
         run: |
           wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
           chmod +x /tmp/llvm.sh
