@@ -20,12 +20,14 @@ jobs:
           #   rust_toolchain: 'nightly-2025-08-29'
           #   llvm_version: '19'
           #   abi3_feature: 'abi3-py39'
+          #   platform_tag: 'pyodide_2025_0_wasm32'
           - polars_version: '1.33.1'
             pyodide_version: '314.0.0a1'
             python_version: '3.14'
             rust_toolchain: 'nightly-2025-08-29'
             llvm_version: '19'
             abi3_feature: 'abi3-py39'
+            platform_tag: 'pyemscripten_2026_0_wasm32'
 
     steps:
       - name: Check out Polars ${{ matrix.polars_version }}
@@ -182,16 +184,12 @@ jobs:
         run: |
           echo "Wheel before retag:"
           ls wasm-dist/*.whl
-          # For pyodide 314.x, maturin already produces the correct emscripten platform
-          # tag from sysconfig — no retag needed. For older pyodide, retag to pyodide_YYYY_N_wasm32.
-          if [[ "${{ matrix.pyodide_version }}" != 314.* ]]; then
-            python3 -m venv /tmp/wheel-retag-env
-            /tmp/wheel-retag-env/bin/pip install -q "wheel<0.45"
-            /tmp/wheel-retag-env/bin/wheel tags \
-              --platform-tag pyodide_2025_0_wasm32 \
-              --remove \
-              wasm-dist/*.whl
-          fi
+          python3 -m venv /tmp/wheel-retag-env
+          /tmp/wheel-retag-env/bin/pip install -q "wheel<0.45"
+          /tmp/wheel-retag-env/bin/wheel tags \
+            --platform-tag ${{ matrix.platform_tag }} \
+            --remove \
+            wasm-dist/*.whl
           echo "Wheel after retag:"
           ls wasm-dist/*.whl
 
